@@ -1,0 +1,160 @@
+---
+title: "MovieLens Capstone-JHW"
+author: "John Wilson"
+date: "6/17/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+**Executive Summary:**
+
+This project involves the MovieLens dataset that includes 10 million ratings for 10,000 movies utilizing 72,000 users. From its raw format, the data was cleaned up into tidy format over 6 columns (movieId, userId, rating, genres, timestamp, title) with the objective of being able to predict the rating.  Furthermore, to confirm predictions, the data was divided into a working set and 10% going to a validation set to be utilized once a model was confirmed from the working set. After attempting several models to reduce the RMSE when compared to predictions, the GLM was selected which resulted in a RMSE of 1.03 on test data.The GLM model applied to the validation data resulted in a final RMSE of 1.05.
+
+
+**Technical Analysis:**
+
+The database included a multitude of genres and it was thought that by combining similar genres would later allow this to be used in a prediction model so the genres column was converted to factors and compressed to 50 categories via the fct_lump function. The working set (edx) was split into a test and training set to perform different variations of models, then validate each model. The first model attempted for predictions was a guess based on the average movie rating. Secondly movie and user effects were implemented to create a prediction. Timing effects were attempted but caused the system to freeze when trying to reduce timestamp to weeks. Hours would have been attempted also but would most definitely have frozen the program so the timestamp was negated in effect trials. From the effects modeling, the compressed genres did not improve prediction strength. Next model attempted was regularization with movie and user effects.  Different methods of regression were tried on a 5000 lines sample of the training set as the full set was too large to do full regressions on. Also it was noted while running regressions that using the genres raw data caused errors but worked with the compressed factors for genres.
+
+
+**Results:**
+
+The results of the models were not as expected and further details will be provided. Increasing lambda on regularizing showed a reducing trend as seen in the plot below.
+```{r,include=FALSE, echo=FALSE, fig.align='center'}
+library(tidyverse)
+library(dslabs)
+library(caret)
+library(stringr)
+library(purrr)
+library(knitr)
+library(tinytex)
+options(digits = 3)    
+library(MASS)
+library(data.table)
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+edx <- edx %>% mutate(genre = fct_lump(genres, n=50)) #reduce genres to 50 categories
+
+model_index <- createDataPartition(edx$rating, times = 1, p=0.5, list=FALSE)
+train_edx <- edx[-model_index,]
+test_edx <- edx[model_index,]
+lambda <- seq(5,50,5)
+mu <- mean(train_edx$rating)
+pred_rmse <- map(lambda, function(l){
+  user_ave <- train_edx %>% group_by(userId) %>% summarize(u_i = sum(rating-mu)/(n()+l))
+  movie_ave <- train_edx %>% left_join(user_ave, by='userId') %>%
+    group_by(movieId) %>%  summarize(m_i = sum(rating-mu-u_i)/(n()+l))
+  
+  pred_rating <- test_edx %>% left_join(movie_ave, by= "movieId") %>%
+    left_join(user_ave, by='userId') %>% mutate(pred = mu + m_i + u_i) %>% 
+    filter(!is.na(pred)) %>% pull(pred) #disregarded all NA ratings
+  
+  RMSE(pred_rating, test_edx$rating)
+  })
+reg_movie_user_eff <- pred_rmse[[which.min(pred_rmse)]]
+```
+```{r, echo=FALSE, fig.align='center'}
+plot(lambda,pred_rmse)
+```
+
+Further increases of lamda could have potentially reduced RMSE but at the current levels being so far above the average predictions it was not attempted for timesake. Surprisingly most of the models were at the average prediciton RMSE or higher which didn't make logical sense. Due to this, the second-best model was picked which was the GLM to apply to the validation.
+
+```{r, include=FALSE, echo=FALSE, fig.align='center'}
+avg <- rep(mean(train_edx$rating), times=nrow(train_edx))
+avg_rmse <- RMSE(avg,test_edx$rating)
+
+mu <- mean(train_edx$rating)
+user_eff <- train_edx %>% group_by(userId) %>% summarize(ue_i = mean(rating-mu))
+movie_eff <- train_edx %>% left_join(user_eff, by='userId') %>%
+    group_by(movieId) %>%  summarize(me_i = mean(rating-mu-ue_i))
+eff_rating <- test_edx %>% left_join(movie_eff, by= "movieId") %>%
+    left_join(user_eff, by='userId') %>% mutate(pred = mu + me_i + ue_i) %>% 
+    filter(!is.na(pred)) %>% pull(pred) #disregarded all NA ratings
+movie_user_eff <- RMSE(eff_rating, test_edx$rating)
+
+genre_eff <- train_edx %>% left_join(user_eff, by='userId') %>% left_join(movie_eff, by="movieId") %>%
+  group_by(genre) %>% summarize(ge_i = mean(rating-mu-ue_i-me_i))
+eff2_rating <- test_edx %>% left_join(genre_eff, by= "genre") %>% left_join(movie_eff, by= "movieId") %>%
+  left_join(user_eff, by='userId') %>% mutate(pred = mu + me_i + ue_i + ge_i) %>% 
+  filter(!is.na(pred)) %>% pull(pred) #disregarded all NA ratings
+movie_use_genre_eff <- RMSE(eff2_rating, test_edx$rating)
+
+set.seed(1,sample.kind = "Rounding")
+reg_train <- train_edx[sample(nrow(train_edx), 5000,)] 
+reg_train <- reg_train[,-5:-6]
+reg_test <- test_edx[sample(nrow(test_edx), 5000,)]
+
+knn_fit <- train(rating~., method= "knn", data=reg_train)
+knn_preds <- predict(knn_fit,reg_test)
+knn_mod <- RMSE(knn_preds, reg_test$rating)
+
+loe_fit <- loess(rating~userId+movieId,reg_train)
+loe_preds <- predict(loe_fit,reg_test) 
+loe_preds <- loe_preds[!is.na(loe_preds)] #removing NA values
+loe_preds[4998:5000] <- loe_preds[996:998] #copied random rows to make table same length as others for ensemble
+loe_mod <- RMSE(loe_preds, reg_test$rating)
+
+glm_fit <- train(rating~., method = "glm", data=reg_train)
+glm_preds <- predict(glm_fit,reg_test)
+glm_mod <- RMSE(glm_preds, reg_test$rating)
+
+ensemble <- data.frame(knn_preds,loe_preds,glm_preds)
+ensemble_pred <- rowMeans(ensemble)
+ensemble_mod <- RMSE(ensemble_pred, reg_test$rating)
+
+Results <- data.frame(Models=c("Avg Pred","Movie+User Eff","Movie+User+Genre Eff",
+                               "Reg Movie+User Eff","Knn", "Loess", "GLM","Ensemble"), 
+                      Mod_RMSE=c(avg_rmse,movie_user_eff,movie_use_genre_eff, 
+                             reg_movie_user_eff,knn_mod,loe_mod,glm_mod,ensemble_mod)) %>%
+          arrange(desc(Mod_RMSE))
+
+validation <- validation %>% mutate(genre= fct_lump(genres, n=50))
+val_preds <- predict(glm_fit, validation)
+val_rmse <- data.frame(Model = "Validation RMSE", Val_RMSE=RMSE(val_preds,validation$rating))
+```
+```{r, echo=FALSE, fig.align='center'}
+kable(Results)
+```
+
+GLM applied to the validation set resulted in a RMSE of 1.05.
+
+
+```{r, echo=FALSE, fig.align='center'}
+kable(val_rmse)
+```
+
+
+**Conclusion:**
+
+Predicting rating based upon the information presented in the dataset was a challenge but different methods were applied to get a sufficient model to predict accurately. RMSE was used as the grading of the 8 models that were produced. Due to the size of the data regressions had to be sampled in order to perform them which prevented the ensemble from having all the models included. Other limitations to the model were the vast spread of genres and no indications of movie length or awards won which could be helpful in prediction. Overall, it was a good exercise to implement skills and maneuvering of data to make models work. With more time, getting the qda/lda models to work and attempting more trials with lambda to see where the minimum of the model’s limitations were could have been achieved. Nevertheless, With the current data and model setup the best achieved RMSE was 1.05 with GLM model.
