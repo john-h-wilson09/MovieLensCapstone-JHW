@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 **Executive Summary:**
 
-This project involves the MovieLens dataset that includes 10 million ratings for 10,000 movies utilizing 72,000 users. From its raw format, the data was cleaned up into tidy format over 6 columns (movieId, userId, rating, genres, timestamp, title) with the objective of being able to predict the rating.  Furthermore, to confirm predictions, the data was divided into a working set and 10% going to a validation set to be utilized once a model was confirmed from the working set. After attempting several models to reduce the RMSE when compared to predictions, the GLM was selected which resulted in a RMSE of 1.03 on test data.The GLM model applied to the validation data resulted in a final RMSE of 1.05.
+This project involves the MovieLens dataset that includes 10 million ratings for 10,000 movies utilizing 72,000 users. From its raw format, the data was cleaned up into tidy format over 6 columns (movieId, userId, rating, genres, timestamp, title) with the objective of being able to predict the rating.  Furthermore, to confirm predictions, the data was divided into a working set and 10% going to a validation set to be utilized once a model was confirmed from the working set. After attempting several models to reduce the RMSE when compared to predictions, the GLM was selected which resulted in a RMSE of 1.03 on test data.The Rpart model applied to the validation data resulted in a final RMSE of 1.05.
 
 
 **Technical Analysis:**
@@ -88,7 +88,7 @@ reg_movie_user_eff <- pred_rmse[[which.min(pred_rmse)]]
 plot(lambda,pred_rmse)
 ```
 
-Further increases of lamda could have potentially reduced RMSE but at the current levels being so far above the average predictions it was not attempted for timesake. Surprisingly most of the models were at the average prediciton RMSE or higher which didn't make logical sense. Due to this, the second-best model was picked which was the GLM to apply to the validation.
+Further increases of lamda could have potentially reduced RMSE but at the current levels being so far above the average predictions it was not attempted for timesake. Surprisingly across all the models the RMSE was above 1 though there was improvement over the average guess, more decrease was expected. The Rpart model was picked to apply to the validation.
 
 ```{r, include=FALSE, echo=FALSE, fig.align='center'}
 avg <- rep(mean(train_edx$rating), times=nrow(train_edx))
@@ -129,25 +129,30 @@ glm_fit <- train(rating~., method = "glm", data=reg_train)
 glm_preds <- predict(glm_fit,reg_test)
 glm_mod <- RMSE(glm_preds, reg_test$rating)
 
+rp_fit <- train(rating~., method = "rpart", data=reg_train)
+rp_preds <- predict(rp_fit,reg_test)
+rp_mod <- RMSE(glm_preds, reg_test$rating)
+
 ensemble <- data.frame(knn_preds,loe_preds,glm_preds)
 ensemble_pred <- rowMeans(ensemble)
 ensemble_mod <- RMSE(ensemble_pred, reg_test$rating)
 
+
 Results <- data.frame(Models=c("Avg Pred","Movie+User Eff","Movie+User+Genre Eff",
-                               "Reg Movie+User Eff","Knn", "Loess", "GLM","Ensemble"), 
+                               "Reg Movie+User Eff","Knn", "Loess", "GLM","Rpart","Ensemble"), 
                       Mod_RMSE=c(avg_rmse,movie_user_eff,movie_use_genre_eff, 
-                             reg_movie_user_eff,knn_mod,loe_mod,glm_mod,ensemble_mod)) %>%
+                             reg_movie_user_eff,knn_mod,loe_mod,glm_mod,rp_mod,ensemble_mod)) %>%
           arrange(desc(Mod_RMSE))
 
 validation <- validation %>% mutate(genre= fct_lump(genres, n=50))
-val_preds <- predict(glm_fit, validation)
+val_preds <- predict(rp_fit, validation)
 val_rmse <- data.frame(Model = "Validation RMSE", Val_RMSE=RMSE(val_preds,validation$rating))
 ```
 ```{r, echo=FALSE, fig.align='center'}
 kable(Results)
 ```
 
-GLM applied to the validation set resulted in a RMSE of 1.05.
+Rpart applied to the validation set resulted in a RMSE of 1.05.
 
 
 ```{r, echo=FALSE, fig.align='center'}
@@ -157,4 +162,4 @@ kable(val_rmse)
 
 **Conclusion:**
 
-Predicting rating based upon the information presented in the dataset was a challenge but different methods were applied to get a sufficient model to predict accurately. RMSE was used as the grading of the 8 models that were produced. Due to the size of the data regressions had to be sampled in order to perform them which prevented the ensemble from having all the models included. Other limitations to the model were the vast spread of genres and no indications of movie length or awards won which could be helpful in prediction. Overall, it was a good exercise to implement skills and maneuvering of data to make models work. With more time, getting the qda/lda models to work and attempting more trials with lambda to see where the minimum of the model’s limitations were could have been achieved. Nevertheless, With the current data and model setup the best achieved RMSE was 1.05 with GLM model.
+Predicting rating based upon the information presented in the dataset was a challenge but different methods were applied to get a sufficient model to predict accurately. RMSE was used as the grading of the 9 models that were produced. Due to the size of the data regressions had to be sampled in order to perform them which prevented the ensemble from having all the models included. Other limitations to the model were the vast spread of genres and no indications of movie length or awards won which could be helpful in prediction. Overall, it was a good exercise to implement skills and maneuvering of data to make models work. With more time, getting the qda/lda models to work and attempting more trials with lambda to see where the minimum of the model’s limitations were could have been achieved. Nevertheless, With the current data and model setup the best achieved RMSE was 1.05 with Rpart model.

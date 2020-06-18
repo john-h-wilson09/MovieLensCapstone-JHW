@@ -8,6 +8,7 @@ library(stringr)
 library(purrr)
 library(knitr)
 library(tinytex)
+library(rpart)
 options(digits = 3)    
 library(MASS)
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
@@ -79,7 +80,7 @@ movie_use_genre_eff <- RMSE(eff2_rating, test_edx$rating)
 
 
 #Regularized Effects Model
-lambda <- seq(5,50,5)
+lambda <- seq(5,25,5)
 pred_rmse <- map(lambda, function(l){
   user_ave <- train_edx %>% group_by(userId) %>% summarize(u_i = sum(rating-mu)/(n()+l))
   movie_ave <- train_edx %>% left_join(user_ave, by='userId') %>%
@@ -97,7 +98,7 @@ regular_effect <- plot(lambda,pred_rmse)
 
 
 # Regression Models - sampled test and train sets as data was too large for regressions
-set.seed(1,sample.kind = "Rounding")
+set.seed(5,sample.kind = "Rounding")
 reg_train <- train_edx[sample(nrow(train_edx), 5000,)] 
 reg_train <- reg_train[,-5:-6]
 reg_test <- test_edx[sample(nrow(test_edx), 5000,)]
@@ -116,21 +117,25 @@ glm_fit <- train(rating~., method = "glm", data=reg_train)
 glm_preds <- predict(glm_fit,reg_test)
 glm_mod <- RMSE(glm_preds, reg_test$rating)
 
+rp_fit <- train(rating~., method = "rpart", data=reg_train)
+rp_preds <- predict(rp_fit,reg_test)
+rp_mod <- RMSE(glm_preds, reg_test$rating)
+
 ensemble <- data.frame(knn_preds,loe_preds,glm_preds)
 ensemble_pred <- rowMeans(ensemble)
 ensemble_mod <- RMSE(ensemble_pred, reg_test$rating)
 
 
 Results <- data.frame(Models=c("Avg Pred","Movie+User Eff","Movie+User+Genre Eff",
-                               "Reg Movie+User Eff","Knn", "Loess", "GLM","Ensemble"), 
+                               "Reg Movie+User Eff","Knn", "Loess", "GLM","Rpart","Ensemble"), 
                       Mod_RMSE=c(avg_rmse,movie_user_eff,movie_use_genre_eff, 
-                             reg_movie_user_eff,knn_mod,loe_mod,glm_mod,ensemble_mod)) %>%
+                             reg_movie_user_eff,knn_mod,loe_mod,glm_mod,rp_mod,ensemble_mod)) %>%
           arrange(desc(Mod_RMSE))
 Results
 
 # Validation Test - selected GLM
 validation <- validation %>% mutate(genre= fct_lump(genres, n=50))
-val_preds <- predict(glm_fit, validation)
+val_preds <- predict(rp_fit, validation)
 val_rmse <- data.frame(Model = "Validation RMSE", Val_RMSE=RMSE(val_preds,validation$rating))
 
-knit()
+
